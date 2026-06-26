@@ -14,6 +14,11 @@ export interface GatewayCustomer {
   email: string;
   /** CPF só com dígitos (11). */
   taxId: string;
+  /**
+   * Telefone (dígitos, com DDD). Opcional na porta, mas OBRIGATÓRIO na
+   * PradaPay — o adapter dela falha cedo e com mensagem clara se vier vazio.
+   */
+  phone?: string | undefined;
 }
 
 export interface CreateChargeInput {
@@ -32,6 +37,24 @@ export interface CreateChargeInput {
    * PCI-DSS: o PAN/CVV crus NUNCA passam por este backend. Veja o README.
    */
   cardToken?: string | undefined;
+
+  /**
+   * Cartão (PradaPay): dados CRUS do cartão. A API da PradaPay NÃO tem fluxo de
+   * tokenização — o cartão é enviado por aqui. ATENÇÃO PCI-DSS: usar isto coloca
+   * o PAN/CVV dentro do escopo do seu servidor. Só é aceito quando
+   * PRADAPAY_ENABLE_CARD=true. O fluxo recomendado continua sendo Pix.
+   */
+  cardRaw?:
+    | {
+        holder: string;
+        number: string;
+        /** Mês de validade, 2 dígitos (ex.: "12"). */
+        expMonth: string;
+        /** Ano de validade, 2 dígitos (ex.: "26"). */
+        expYear: string;
+        cvv: string;
+      }
+    | undefined;
 
   /** URL que o gateway chama (server-to-server) quando o status muda. */
   webhookUrl: string;
@@ -78,6 +101,11 @@ export interface ChargeResult {
   pix?: PixDetails;
   boleto?: BoletoDetails;
   card?: CardDetails;
+  /**
+   * Fluxo "redirect": URL externa pra concluir o pagamento (cartão/boleto em
+   * alguns gateways, como a PradaPay). Quando presente, o front redireciona.
+   */
+  redirectUrl?: string;
   /** Payload original do gateway — guardado pra auditoria/depuração. */
   raw?: unknown;
 }
@@ -112,8 +140,12 @@ export interface PaymentGateway {
   getCharge(gatewayId: string): Promise<ChargeResult>;
 
   /**
-   * Valida a assinatura e normaliza o webhook. Deve LANÇAR
-   * WebhookSignatureError se a assinatura não conferir.
+   * Valida/normaliza o webhook. Deve LANÇAR WebhookSignatureError se a
+   * autenticidade não puder ser confirmada.
+   *
+   * É assíncrono porque nem todo gateway assina o callback: quando não há
+   * assinatura (caso da PradaPay), a forma segura de confirmar é RE-CONSULTAR
+   * o status na API do provedor (server-to-server) — e isso é I/O.
    */
-  parseWebhook(req: RawWebhookRequest): WebhookEvent;
+  parseWebhook(req: RawWebhookRequest): Promise<WebhookEvent>;
 }

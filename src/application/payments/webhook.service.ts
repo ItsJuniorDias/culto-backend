@@ -31,7 +31,7 @@ export class WebhookService {
    * reentregas do gateway são seguras.
    */
   async handle(req: RawWebhookRequest): Promise<WebhookOutcome> {
-    const event = this.deps.gateway.parseWebhook(req);
+    const event = await this.deps.gateway.parseWebhook(req);
 
     // Acha o pedido pela referência externa (nosso id) ou pelo id do gateway.
     const order =

@@ -31,11 +31,15 @@ const EnvSchema = z
 
     PRADAPAY_API_KEY: z.string().optional(),
     PRADAPAY_BASE_URL: z.string().url().default('https://api.pradapay.com'),
-    PRADAPAY_WEBHOOK_SECRET: z.string().optional(),
+    /**
+     * Cartão na PradaPay trafega PAN cru (sem tokenização). Mantenha DESLIGADO
+     * a menos que você assuma o escopo PCI-DSS. O fluxo recomendado é Pix.
+     */
+    PRADAPAY_ENABLE_CARD: booleanish.default(false),
 
     ENABLE_DEV_ROUTES: booleanish.default(true),
   })
-  // Se for usar PradaPay de verdade, exige as credenciais.
+  // Se for usar PradaPay de verdade, exige a credencial da API.
   .superRefine((env, ctx) => {
     if (env.PAYMENT_PROVIDER === 'pradapay') {
       if (!env.PRADAPAY_API_KEY) {
@@ -45,13 +49,8 @@ const EnvSchema = z
           message: 'Obrigatório quando PAYMENT_PROVIDER=pradapay.',
         });
       }
-      if (!env.PRADAPAY_WEBHOOK_SECRET) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['PRADAPAY_WEBHOOK_SECRET'],
-          message: 'Obrigatório quando PAYMENT_PROVIDER=pradapay (validação do webhook).',
-        });
-      }
+      // Obs.: a PradaPay NÃO assina o webhook (não há segredo de webhook). A
+      // autenticidade do callback é garantida re-consultando o status na API.
     }
   });
 

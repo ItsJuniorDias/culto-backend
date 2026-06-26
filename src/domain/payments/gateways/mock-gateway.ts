@@ -106,7 +106,8 @@ export class MockGateway implements PaymentGateway {
     return charge;
   }
 
-  parseWebhook(req: RawWebhookRequest): WebhookEvent {
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async parseWebhook(req: RawWebhookRequest): Promise<WebhookEvent> {
     const raw = typeof req.rawBody === 'string' ? req.rawBody : req.rawBody.toString('utf8');
 
     const headerValue = req.headers[MOCK_WEBHOOK_SIGNATURE_HEADER];

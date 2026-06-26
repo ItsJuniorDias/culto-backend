@@ -10,10 +10,22 @@ export interface CreateCheckoutInput {
     /** CPF só com dígitos. */
     cpf: string;
     name?: string | undefined;
+    /** Telefone (dígitos). Obrigatório na PradaPay. */
+    phone?: string | undefined;
   };
   couponCode?: string | undefined;
   installments?: number | undefined;
   cardToken?: string | undefined;
+  /** Cartão CRU (PradaPay + PRADAPAY_ENABLE_CARD). PCI-DSS: veja o README. */
+  card?:
+    | {
+        holder: string;
+        number: string;
+        expMonth: string;
+        expYear: string;
+        cvv: string;
+      }
+    | undefined;
 }
 
 export interface OrderView {
@@ -34,6 +46,8 @@ export interface PaymentView {
   pix?: { copyPaste: string; qrCodeImage?: string; expiresAt: string };
   boleto?: { line: string; barcode: string; pdfUrl?: string; expiresAt: string };
   card?: { brand?: string; last4?: string; installments?: number };
+  /** Fluxo redirect (ex.: cartão/boleto na PradaPay): URL pra concluir. */
+  redirectUrl?: string;
 }
 
 /** Resposta de POST /api/checkout/sessions */

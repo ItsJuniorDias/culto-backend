@@ -19,10 +19,12 @@ export function registerCheckoutRoutes(app: FastifyInstance, c: Container): void
         email: body.customer.email,
         cpf: body.customer.cpf,
         ...(body.customer.name ? { name: body.customer.name } : {}),
+        ...(body.customer.phone ? { phone: body.customer.phone } : {}),
       },
       ...(body.couponCode ? { couponCode: body.couponCode } : {}),
       ...(body.installments ? { installments: body.installments } : {}),
       ...(body.cardToken ? { cardToken: body.cardToken } : {}),
+      ...(body.card ? { card: body.card } : {}),
     });
     reply.status(201).send(result);
   });

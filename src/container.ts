@@ -38,7 +38,7 @@ function buildGateway(env: Env): { gateway: PaymentGateway; mockSecret: string |
     const gateway = new PradaPayGateway({
       apiKey: env.PRADAPAY_API_KEY ?? '',
       baseUrl: env.PRADAPAY_BASE_URL,
-      webhookSecret: env.PRADAPAY_WEBHOOK_SECRET ?? '',
+      enableCard: env.PRADAPAY_ENABLE_CARD,
     });
     return { gateway, mockSecret: null };
   }

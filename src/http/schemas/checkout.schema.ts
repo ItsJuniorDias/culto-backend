@@ -40,7 +40,8 @@ export const createCheckoutSchema = z.object({
   customer: z.object({
     email: emailSchema,
     cpf: cpfSchema,
-    name: z.string().trim().min(1).optional(),
+    // Obrigatório: a PradaPay exige o nome do cliente (client.name) na cobrança.
+    name: z.string().trim().min(1, 'Nome é obrigatório.'),
   }),
   couponCode: z.string().trim().min(1).optional(),
   // Só fazem sentido pra cartão; o service ignora nos outros métodos.

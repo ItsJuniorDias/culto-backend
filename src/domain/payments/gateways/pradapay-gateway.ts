@@ -94,7 +94,9 @@ export class PradaPayGateway implements PaymentGateway {
       external_reference: input.orderId, // volta no webhook -> achamos o pedido
       postback_url: input.webhookUrl, // ←★ pode se chamar "webhook"/"notification_url"
       return_url: input.returnUrl,
-      customer: {
+      // A PradaPay espera o cliente sob a chave "client" (confirmado pela
+      // mensagem de erro real: "Campo obrigatório ausente: client.name").
+      client: {
         name: input.customer.name,
         email: input.customer.email,
         document: input.customer.taxId, // CPF (dígitos)  ←★ pode ser "tax_id"/"cpf"

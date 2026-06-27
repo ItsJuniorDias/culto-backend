@@ -80,7 +80,7 @@ async function main(): Promise<void> {
         payload: {
           packId: 'motion',
           paymentMethod: 'pix',
-          customer: { email: 'cliente@exemplo.com', cpf: '529.982.247-25' },
+          customer: { email: 'cliente@exemplo.com', cpf: '529.982.247-25', name: 'Fulano de Tal' },
         },
       });
       assert.equal(res.statusCode, 201, 'checkout 201');
@@ -168,7 +168,7 @@ async function main(): Promise<void> {
         payload: {
           packId: 'bundle',
           paymentMethod: 'boleto',
-          customer: { email: 'boleto@exemplo.com', cpf: '529.982.247-25' },
+          customer: { email: 'boleto@exemplo.com', cpf: '529.982.247-25', name: 'Fulano de Tal' },
         },
       });
       assert.equal(res.statusCode, 201);
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
         payload: {
           packId: 'nao-existe',
           paymentMethod: 'pix',
-          customer: { email: 'x@y.com', cpf: '529.982.247-25' },
+          customer: { email: 'x@y.com', cpf: '529.982.247-25', name: 'Fulano de Tal' },
         },
       });
       assert.equal(notFound.statusCode, 404, 'pack inexistente = 404');
@@ -200,7 +200,7 @@ async function main(): Promise<void> {
         payload: {
           packId: 'design',
           paymentMethod: 'pix',
-          customer: { email: 'x@y.com', cpf: '111.111.111-11' },
+          customer: { email: 'x@y.com', cpf: '111.111.111-11', name: 'Fulano de Tal' },
         },
       });
       assert.equal(badCpf.statusCode, 422, 'CPF inválido = 422');

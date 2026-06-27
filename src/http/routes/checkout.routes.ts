@@ -12,6 +12,17 @@ import { createCheckoutSchema, orderIdParamSchema } from '../schemas/checkout.sc
 export function registerCheckoutRoutes(app: FastifyInstance, c: Container): void {
   app.post('/api/checkout/sessions', async (request, reply) => {
     const body = parse(createCheckoutSchema, request.body);
+    // [CULTO-DEBUG] visibilidade do telefone ponta a ponta (remova quando estabilizar)
+    request.log.info(
+      {
+        method: body.paymentMethod,
+        rawCustomerKeys: Object.keys((request.body as Record<string, unknown>)?.customer as object ?? {}),
+        parsedCustomerKeys: Object.keys(body.customer),
+        hasPhone: Boolean(body.customer.phone),
+        phone: body.customer.phone ?? null,
+      },
+      '[CULTO-DEBUG] /checkout/sessions recebido',
+    );
     const result = await c.checkout.createCheckout({
       packId: body.packId,
       paymentMethod: body.paymentMethod,
@@ -19,6 +30,7 @@ export function registerCheckoutRoutes(app: FastifyInstance, c: Container): void
         email: body.customer.email,
         cpf: body.customer.cpf,
         ...(body.customer.name ? { name: body.customer.name } : {}),
+        ...(body.customer.phone ? { phone: body.customer.phone } : {}),
       },
       ...(body.couponCode ? { couponCode: body.couponCode } : {}),
       ...(body.installments ? { installments: body.installments } : {}),

@@ -12,8 +12,8 @@ async function main(): Promise<void> {
   try {
     await app.listen({ port: env.PORT, host: env.HOST });
     app.log.info(
-      { provider: env.PAYMENT_PROVIDER, url: env.API_PUBLIC_URL },
-      `CULTO checkout API no ar (provider: ${env.PAYMENT_PROVIDER})`,
+      { provider: env.PAYMENT_PROVIDER, url: env.API_PUBLIC_URL, build: 'phone-fix-route-2026-06-27' },
+      `CULTO checkout API no ar (provider: ${env.PAYMENT_PROVIDER}) [build: phone-fix-route-2026-06-27]`,
     );
   } catch (err) {
     app.log.error(err, 'falha ao subir o servidor');

@@ -87,6 +87,15 @@ export class PradaPayGateway implements PaymentGateway {
   }
 
   async createCharge(input: CreateChargeInput): Promise<ChargeResult> {
+    // [CULTO-DEBUG] o que o adaptador realmente recebeu (remova quando estabilizar)
+    console.warn(
+      '[CULTO-DEBUG] PradaPay.createCharge customer =',
+      JSON.stringify({
+        keys: Object.keys(input.customer ?? {}),
+        hasPhone: Boolean(input.customer?.phone),
+        phone: input.customer?.phone ?? null,
+      }),
+    );
     if (!input.customer.name) {
       throw new GatewayError('PradaPay exige o nome do cliente (client.name).');
     }

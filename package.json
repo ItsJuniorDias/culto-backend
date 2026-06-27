@@ -9,6 +9,8 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "clean": "rm -rf dist",
+    "prebuild": "rm -rf dist",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
@@ -16,6 +18,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
+    "culto-checkout-api": ".",
     "fastify": "^5.1.0",
     "zod": "^3.23.8"
   },

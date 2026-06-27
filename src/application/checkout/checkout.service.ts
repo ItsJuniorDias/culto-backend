@@ -64,6 +64,7 @@ export class CheckoutService {
         email: input.customer.email,
         taxId: input.customer.cpf,
         ...(input.customer.name ? { name: input.customer.name } : {}),
+        ...(input.customer.phone ? { phone: input.customer.phone } : {}),
       },
       subtotalCents: pricing.subtotalCents,
       discountCents: pricing.discountCents,
@@ -91,6 +92,7 @@ export class CheckoutService {
         email: input.customer.email,
         taxId: input.customer.cpf,
         ...(input.customer.name ? { name: input.customer.name } : {}),
+        ...(input.customer.phone ? { phone: input.customer.phone } : {}),
       },
       description: `CULTO · ${pack.title}`,
       ...(input.paymentMethod === 'card'

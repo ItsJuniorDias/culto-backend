@@ -49,13 +49,9 @@ const EnvSchema = z
           message: 'Obrigatório quando PAYMENT_PROVIDER=pradapay.',
         });
       }
-      if (!env.PRADAPAY_WEBHOOK_SECRET) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['PRADAPAY_WEBHOOK_SECRET'],
-          message: 'Obrigatório quando PAYMENT_PROVIDER=pradapay (validação do webhook).',
-        });
-      }
+      // PRADAPAY_WEBHOOK_SECRET NÃO é exigido: a PradaPay não assina o webhook
+      // (a doc não define assinatura). A confirmação é feita por polling do
+      // endpoint de status. O campo continua aceito, mas é opcional.
     }
   });
 

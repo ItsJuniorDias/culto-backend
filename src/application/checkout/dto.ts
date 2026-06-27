@@ -10,6 +10,8 @@ export interface CreateCheckoutInput {
     /** CPF só com dígitos. */
     cpf: string;
     name?: string | undefined;
+    /** Telefone (dígitos). */
+    phone?: string | undefined;
   };
   couponCode?: string | undefined;
   installments?: number | undefined;

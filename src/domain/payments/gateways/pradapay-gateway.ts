@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
 import type {
   ChargeResult,
   CreateChargeInput,
@@ -7,63 +6,74 @@ import type {
   WebhookEvent,
 } from '../payment-gateway.js';
 import type { PaymentMethod, PaymentStatus } from '../payment.types.js';
-import { GatewayError, GatewayNotConfiguredError, WebhookSignatureError } from '../../../shared/errors.js';
+import { GatewayError, GatewayNotConfiguredError } from '../../../shared/errors.js';
 
 /**
  * ════════════════════════════════════════════════════════════════════════
- *  ADAPTER PradaPay  —  STUB PRONTO PRA PLUGAR
+ *  ADAPTER PradaPay  —  ALINHADO À DOC OFICIAL
+ *  (https://web.pradapay.com/developers)
  * ════════════════════════════════════════════════════════════════════════
  *
- * A PradaPay é um gateway REST + webhook + API key, focado em Pix (mesmo
- * padrão de PixToPay/Efí/Pagar.me). A documentação oficial fica atrás de
- * login, então os NOMES EXATOS de campos/endpoints/headers abaixo são o
- * padrão de mercado e estão marcados com  ←★ AJUSTAR  onde você confirma na
- * doc da PradaPay. Em geral é trocar 3–4 strings e está no ar.
- *
- * O que JÁ está pronto e correto, independente da doc:
- *   - estrutura do adapter (implementa a porta PaymentGateway)
- *   - chamada HTTP com fetch nativo + tratamento de erro
- *   - verificação de assinatura HMAC do webhook (timing-safe)
- *   - normalização de status pro vocabulário da casa
+ * Contrato real da PradaPay:
+ *   - Base:                 https://api.pradapay.com
+ *   - Cobrança (Pix/Cartão/Boleto):  POST /v1/gateway/
+ *   - Consulta de status:            POST /v1/webhook/   { idtransaction } -> { status }
+ *   - Auth: a api-key vai NO CORPO JSON (campo "api-key"), NÃO em header.
+ *   - amount em REAIS decimal (ex.: 1.50), NÃO em centavos.
+ *   - client.userPhone é OBRIGATÓRIO (além de name/email/document).
+ *   - Pix é o método PADRÃO; cartão usa forma_pagamento:"cartao", boleto "boleto".
+ *   - Sucesso: { status:"success", idTransaction, paymentCode, paymentCodeBase64, ... }
+ *       (o "status" aqui é da REQUISIÇÃO; o status do PAGAMENTO vem do /v1/webhook/.)
+ *   - Erro: pode vir HTTP 200 com { status:"error", message } — checamos o corpo.
+ *   - Webhook SEM assinatura (a doc não define) — a confirmação confiável é por
+ *     POLLING (getStatus -> getCharge -> /v1/webhook/).
  */
 
 export interface PradaPayConfig {
   apiKey: string;
   baseUrl: string;
-  webhookSecret: string;
-  /** Header onde a PradaPay manda a assinatura do webhook.  ←★ AJUSTAR */
-  webhookSignatureHeader?: string;
+  /** Não usado pela PradaPay (sem assinatura de webhook). Mantido por compat. */
+  webhookSecret?: string;
 }
 
-// ←★ AJUSTAR: como a PradaPay nomeia os métodos no request.
-const METHOD_MAP: Record<PaymentMethod, string> = {
-  pix: 'pix',
-  card: 'credit_card',
-  boleto: 'boleto',
-};
-
-/**
- * ←★ AJUSTAR: mapeia o status da PradaPay -> status normalizado da casa.
- * Cobrimos os termos mais comuns; acrescente os que aparecerem na doc.
- */
+/** Status do PAGAMENTO conforme a PradaPay (FAQ + respostas reais). */
 function normalizeStatus(raw: string): PaymentStatus {
-  const s = (raw || '').toLowerCase();
-  if (['paid', 'approved', 'confirmed', 'completed', 'settled', 'succeeded'].includes(s)) return 'paid';
-  if (['processing', 'in_process', 'in_analysis', 'authorized'].includes(s)) return 'processing';
-  if (['expired'].includes(s)) return 'expired';
-  if (['refunded', 'chargeback', 'reversed'].includes(s)) return 'refunded';
-  if (['canceled', 'cancelled', 'voided'].includes(s)) return 'canceled';
-  if (['failed', 'refused', 'declined', 'rejected', 'error'].includes(s)) return 'failed';
-  return 'pending'; // created/waiting/pending e desconhecidos => pendente
+  const s = (raw || '').toUpperCase();
+  if (['PAID_OUT', 'PAID', 'PAGO', 'APPROVED', 'SUCCESS', 'COMPLETED'].includes(s)) return 'paid';
+  if (['WAITING_FOR_APPROVAL', 'PENDING', 'WAITING', 'CREATED'].includes(s)) return 'pending';
+  if (['PROCESSING', 'IN_PROCESS', 'IN_ANALYSIS', 'AUTHORIZED'].includes(s)) return 'processing';
+  if (['DECLINED', 'REFUSED', 'FAILED', 'REJECTED', 'ERROR'].includes(s)) return 'failed';
+  if (['REFUNDED', 'CHARGEBACK', 'REVERSED'].includes(s)) return 'refunded';
+  if (['EXPIRED'].includes(s)) return 'expired';
+  if (['CANCELED', 'CANCELLED', 'VOIDED'].includes(s)) return 'canceled';
+  return 'pending'; // desconhecidos => pendente
 }
 
-/** Tenta achar um valor em várias chaves possíveis (a doc pode usar outra). */
-function pick<T = unknown>(obj: Record<string, unknown>, keys: string[]): T | undefined {
+/** Tenta achar um valor em várias chaves possíveis. */
+function pick<T = unknown>(obj: Record<string, unknown> | undefined, keys: string[]): T | undefined {
+  if (!obj) return undefined;
   for (const k of keys) {
     if (obj[k] !== undefined && obj[k] !== null) return obj[k] as T;
   }
   return undefined;
 }
+
+/** CPF (dígitos) -> 000.000.000-00 (formato que a doc usa). */
+function formatCPF(value: string): string {
+  const n = (value || '').replace(/\D/g, '').slice(0, 11);
+  if (n.length !== 11) return value;
+  return n.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+}
+
+/** Telefone BR (dígitos) -> (00) 00000-0000 / (00) 0000-0000. */
+function formatPhone(value: string): string {
+  const n = (value || '').replace(/\D/g, '');
+  if (n.length === 11) return n.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+  if (n.length === 10) return n.replace(/(\d{2})(\d{4})(\d{4})/, '($1) $2-$3');
+  return value;
+}
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 export class PradaPayGateway implements PaymentGateway {
   readonly name = 'pradapay';
@@ -76,68 +86,68 @@ export class PradaPayGateway implements PaymentGateway {
     this.config = config;
   }
 
-  private headers(): Record<string, string> {
-    return {
-      'Content-Type': 'application/json',
-      // ←★ AJUSTAR: a PradaPay pode usar "Authorization: Bearer <key>",
-      //    "x-api-key: <key>" ou "Authorization: <key>". Confirme na doc.
-      Authorization: `Bearer ${this.config.apiKey}`,
-    };
-  }
-
   async createCharge(input: CreateChargeInput): Promise<ChargeResult> {
-    // ←★ AJUSTAR: corpo da requisição conforme a doc da PradaPay.
-    const body = {
-      amount: input.amountCents, // ←★ muitos gateways BR usam CENTAVOS; confirme
-      payment_method: METHOD_MAP[input.method],
-      description: input.description,
-      external_reference: input.orderId, // volta no webhook -> achamos o pedido
-      postback_url: input.webhookUrl, // ←★ pode se chamar "webhook"/"notification_url"
-      return_url: input.returnUrl,
-      // A PradaPay espera o cliente sob a chave "client" (confirmado pela
-      // mensagem de erro real: "Campo obrigatório ausente: client.name").
+    if (!input.customer.name) {
+      throw new GatewayError('PradaPay exige o nome do cliente (client.name).');
+    }
+    if (!input.customer.phone) {
+      throw new GatewayError('PradaPay exige o telefone do cliente (client.userPhone).');
+    }
+
+    const body: Record<string, unknown> = {
+      requestNumber: input.orderId, // volta como referência -> achamos o pedido
+      amount: round2(input.amountCents / 100), // REAIS decimal (não centavos)
+      'api-key': this.config.apiKey, // auth vai no corpo
+      postback: input.webhookUrl, // callback de notificação
       client: {
         name: input.customer.name,
+        document: formatCPF(input.customer.taxId),
         email: input.customer.email,
-        document: input.customer.taxId, // CPF (dígitos)  ←★ pode ser "tax_id"/"cpf"
+        userPhone: formatPhone(input.customer.phone),
       },
-      ...(input.method === 'card'
-        ? { installments: input.installments ?? 1, card_token: input.cardToken }
-        : {}),
-      ...(input.expiresInSeconds ? { expires_in: input.expiresInSeconds } : {}),
-      metadata: input.metadata,
     };
 
-    // ←★ AJUSTAR: endpoint de criação de cobrança.
-    const data = await this.request<Record<string, unknown>>('POST', '/v1/transactions', body);
+    if (input.method === 'boleto') {
+      body.forma_pagamento = 'boleto';
+    } else if (input.method === 'card') {
+      // ⚠ A API de cartão da PradaPay espera os dados CRUS do cartão
+      // (card.numero/cvv/...). Este backend é tokenizado (PCI) e NÃO recebe o
+      // PAN cru, então o fluxo de CARTÃO via PradaPay precisa de uma decisão à
+      // parte (checkout/SDK da PradaPay no front). PIX e BOLETO funcionam aqui.
+      body.forma_pagamento = 'cartao';
+      body.parcela = input.installments ?? 1;
+    }
+    // Pix: é o padrão da PradaPay — não envia forma_pagamento.
+
+    const data = await this.request<Record<string, unknown>>('POST', '/v1/gateway/', body);
     return this.toChargeResult(input.method, input.amountCents, data);
   }
 
+  /** Consulta o status no gateway (usado pelo polling da página de retorno). */
   async getCharge(gatewayId: string): Promise<ChargeResult> {
-    // ←★ AJUSTAR: endpoint de consulta.
-    const data = await this.request<Record<string, unknown>>(
-      'GET',
-      `/v1/transactions/${encodeURIComponent(gatewayId)}`,
-    );
-    const method = (pick<string>(data, ['payment_method', 'method']) ?? 'pix') as PaymentMethod;
-    const amount = Number(pick(data, ['amount', 'amount_cents']) ?? 0);
-    return this.toChargeResult(method in METHOD_MAP ? method : 'pix', amount, data);
+    const data = await this.request<Record<string, unknown>>('POST', '/v1/webhook/', {
+      idtransaction: gatewayId,
+    });
+    const statusRaw = String(pick(data, ['status', 'payment_status']) ?? 'pending');
+    // O endpoint de status só devolve o status; method/amount não são usados
+    // pelo getStatus (apenas charge.status é aplicado ao pedido).
+    return {
+      gatewayId,
+      status: normalizeStatus(statusRaw),
+      method: 'pix',
+      amountCents: 0,
+      raw: data,
+    };
   }
 
+  /**
+   * Webhook de ENTRADA (postback). A doc da PradaPay não define assinatura nem
+   * o formato exato do corpo, então NÃO verificamos assinatura e extraímos os
+   * campos de forma tolerante. A confirmação confiável é por POLLING (acima),
+   * então este caminho é um bônus.
+   */
   parseWebhook(req: RawWebhookRequest): WebhookEvent {
     const raw = typeof req.rawBody === 'string' ? req.rawBody : req.rawBody.toString('utf8');
-
-    // ←★ AJUSTAR: nome do header de assinatura.
-    const headerName = (this.config.webhookSignatureHeader ?? 'x-signature').toLowerCase();
-    const headerValue = req.headers[headerName];
-    const received = Array.isArray(headerValue) ? headerValue[0] : headerValue;
-
-    // ←★ AJUSTAR: algumas casas assinam o corpo cru com HMAC-SHA256 hex;
-    //    outras mandam um token fixo. Aqui está o caso HMAC (o mais comum).
-    const expected = createHmac('sha256', this.config.webhookSecret).update(raw).digest('hex');
-    if (!received || !safeEqual(received, expected)) {
-      throw new WebhookSignatureError();
-    }
 
     let payload: Record<string, unknown>;
     try {
@@ -146,10 +156,11 @@ export class PradaPayGateway implements PaymentGateway {
       throw new GatewayError('Webhook da PradaPay com JSON inválido.');
     }
 
-    // O payload pode vir "achatado" ou aninhado em { data: {...} } / { transaction: {...} }.
-    const tx = (pick<Record<string, unknown>>(payload, ['data', 'transaction']) ?? payload);
-    const gatewayId = String(pick(tx, ['id', 'transaction_id']) ?? '');
-    const orderId = pick<string>(tx, ['external_reference', 'reference']);
+    const tx = pick<Record<string, unknown>>(payload, ['data', 'transaction']) ?? payload;
+    const gatewayId = String(
+      pick(tx, ['idtransaction', 'idTransaction', 'id', 'transaction_id']) ?? '',
+    );
+    const orderId = pick<string>(tx, ['requestNumber', 'external_reference', 'reference']);
     const statusRaw = String(pick(tx, ['status', 'payment_status']) ?? '');
 
     if (!gatewayId) throw new GatewayError('Webhook da PradaPay sem id da transação.');
@@ -171,7 +182,7 @@ export class PradaPayGateway implements PaymentGateway {
     try {
       res = await fetch(url, {
         method,
-        headers: this.headers(),
+        headers: { 'Content-Type': 'application/json' },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
     } catch (cause) {
@@ -180,9 +191,13 @@ export class PradaPayGateway implements PaymentGateway {
 
     const text = await res.text();
     const json = text ? safeJson(text) : undefined;
+    const asObj = json && typeof json === 'object' ? (json as Record<string, unknown>) : undefined;
 
-    if (!res.ok) {
-      throw new GatewayError(`PradaPay respondeu ${res.status}.`, { status: res.status, body: json ?? text });
+    // A PradaPay pode devolver HTTP 200 com { status: "error", message }.
+    const apiError = asObj && String(asObj.status ?? '').toLowerCase() === 'error';
+    if (!res.ok || apiError) {
+      const message = asObj?.message ? String(asObj.message) : `PradaPay respondeu ${res.status}.`;
+      throw new GatewayError(message, { status: res.status, body: json ?? text });
     }
     return json as T;
   }
@@ -192,41 +207,50 @@ export class PradaPayGateway implements PaymentGateway {
     amountCents: number,
     data: Record<string, unknown>,
   ): ChargeResult {
-    const gatewayId = String(pick(data, ['id', 'transaction_id']) ?? '');
-    const statusRaw = String(pick(data, ['status', 'payment_status']) ?? 'pending');
+    const gatewayId = String(pick(data, ['idTransaction', 'idtransaction', 'id']) ?? '');
 
     const result: ChargeResult = {
       gatewayId,
-      status: normalizeStatus(statusRaw),
+      // Na criação, o Pix ainda não foi pago. O "status":"success" da resposta é
+      // da REQUISIÇÃO, não do pagamento — o status real vem do polling.
+      status: 'pending',
       method,
       amountCents,
       raw: data,
     };
 
-    // ←★ AJUSTAR: caminhos do QR/copia-e-cola e do boleto conforme a doc.
-    const pix = pick<Record<string, unknown>>(data, ['pix', 'qr_code', 'qrcode']);
-    if (method === 'pix' && pix) {
+    if (method === 'pix') {
       result.pix = {
-        copyPaste: String(pick(pix, ['qr_code', 'copy_paste', 'emv', 'payload']) ?? ''),
-        ...(pick(pix, ['qr_code_image', 'image_url', 'qr_code_base64'])
-          ? { qrCodeImage: String(pick(pix, ['qr_code_image', 'image_url', 'qr_code_base64'])) }
+        copyPaste: String(pick(data, ['paymentCode', 'copy_paste', 'emv']) ?? ''),
+        ...(pick(data, ['paymentCodeBase64', 'qr_code_base64'])
+          ? { qrCodeImage: toDataUrl(String(pick(data, ['paymentCodeBase64', 'qr_code_base64']))) }
           : {}),
-        expiresAt: String(pick(pix, ['expires_at', 'expiration']) ?? new Date(Date.now() + 1800_000).toISOString()),
+        expiresAt: new Date(Date.now() + 1800_000).toISOString(),
       };
     }
 
-    const boleto = pick<Record<string, unknown>>(data, ['boleto', 'bank_slip']);
-    if (method === 'boleto' && boleto) {
+    if (method === 'boleto') {
+      const barcode = String(pick(data, ['barcode']) ?? '');
       result.boleto = {
-        line: String(pick(boleto, ['line', 'digitable_line', 'barcode']) ?? ''),
-        barcode: String(pick(boleto, ['barcode', 'bar_code']) ?? ''),
-        ...(pick(boleto, ['pdf_url', 'url']) ? { pdfUrl: String(pick(boleto, ['pdf_url', 'url'])) } : {}),
-        expiresAt: String(pick(boleto, ['expires_at', 'due_date']) ?? new Date(Date.now() + 3 * 86400_000).toISOString()),
+        line: barcode,
+        barcode,
+        ...(pick(data, ['pdf_url', 'url']) ? { pdfUrl: String(pick(data, ['pdf_url', 'url'])) } : {}),
+        expiresAt: new Date(Date.now() + 3 * 86400_000).toISOString(),
       };
+    }
+
+    if (method === 'card') {
+      const retorno = pick<string>(data, ['retorno_cartao']);
+      if (retorno) result.status = normalizeStatus(retorno);
     }
 
     return result;
   }
+}
+
+/** A doc devolve só a string base64 do PNG; o front espera algo exibível. */
+function toDataUrl(base64: string): string {
+  return base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
 }
 
 function safeJson(text: string): unknown {
@@ -235,11 +259,4 @@ function safeJson(text: string): unknown {
   } catch {
     return undefined;
   }
-}
-
-function safeEqual(a: string, b: string): boolean {
-  const ba = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ba.length !== bb.length) return false;
-  return timingSafeEqual(ba, bb);
 }

@@ -34,6 +34,16 @@ const cpfSchema = z
   // Normaliza pra só dígitos — é o que o gateway espera.
   .transform(onlyDigits);
 
+const phoneSchema = z
+  .string()
+  .trim()
+  .refine((v) => {
+    const d = onlyDigits(v);
+    return d.length >= 10 && d.length <= 11;
+  }, 'Telefone inválido.')
+  // Guarda só os dígitos; o adapter formata conforme o gateway.
+  .transform(onlyDigits);
+
 export const createCheckoutSchema = z.object({
   packId: z.string().trim().min(1, 'packId é obrigatório.'),
   paymentMethod: z.enum(PAYMENT_METHODS),
@@ -42,6 +52,8 @@ export const createCheckoutSchema = z.object({
     cpf: cpfSchema,
     // Obrigatório: a PradaPay exige o nome do cliente (client.name) na cobrança.
     name: z.string().trim().min(1, 'Nome é obrigatório.'),
+    // Obrigatório: a PradaPay exige o telefone do cliente (client.userPhone).
+    phone: phoneSchema,
   }),
   couponCode: z.string().trim().min(1).optional(),
   // Só fazem sentido pra cartão; o service ignora nos outros métodos.

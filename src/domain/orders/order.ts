@@ -12,6 +12,7 @@ export interface OrderCustomer {
   name?: string | undefined;
   email: string;
   taxId: string; // CPF (dígitos)
+  phone?: string | undefined; // telefone (p/ gateways que exigem, ex. PradaPay)
 }
 
 export interface OrderProps {

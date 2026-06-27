@@ -14,6 +14,8 @@ export interface GatewayCustomer {
   email: string;
   /** CPF só com dígitos (11). */
   taxId: string;
+  /** Telefone (dígitos ou formatado). Obrigatório p/ PradaPay (client.userPhone). */
+  phone?: string | undefined;
 }
 
 export interface CreateChargeInput {

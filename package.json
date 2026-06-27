@@ -12,8 +12,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "smoke": "tsx scripts/smoke.ts",
-    "smoke:pradapay": "tsx scripts/pradapay.smoke.ts"
+    "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

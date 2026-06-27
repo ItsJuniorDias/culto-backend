@@ -64,7 +64,6 @@ export class CheckoutService {
         email: input.customer.email,
         taxId: input.customer.cpf,
         ...(input.customer.name ? { name: input.customer.name } : {}),
-        ...(input.customer.phone ? { phone: input.customer.phone } : {}),
       },
       subtotalCents: pricing.subtotalCents,
       discountCents: pricing.discountCents,
@@ -92,15 +91,10 @@ export class CheckoutService {
         email: input.customer.email,
         taxId: input.customer.cpf,
         ...(input.customer.name ? { name: input.customer.name } : {}),
-        ...(input.customer.phone ? { phone: input.customer.phone } : {}),
       },
       description: `CULTO · ${pack.title}`,
       ...(input.paymentMethod === 'card'
-        ? {
-            installments,
-            ...(input.cardToken ? { cardToken: input.cardToken } : {}),
-            ...(input.card ? { cardRaw: input.card } : {}),
-          }
+        ? { installments, ...(input.cardToken ? { cardToken: input.cardToken } : {}) }
         : {}),
       webhookUrl,
       returnUrl,
@@ -222,9 +216,6 @@ function chargeToPaymentView(charge: ChargeResult, status: PaymentView['status']
       ...(charge.card.last4 ? { last4: charge.card.last4 } : {}),
       ...(charge.card.installments ? { installments: charge.card.installments } : {}),
     };
-  }
-  if (charge.redirectUrl) {
-    view.redirectUrl = charge.redirectUrl;
   }
   return view;
 }

@@ -12,7 +12,6 @@ export interface OrderCustomer {
   name?: string | undefined;
   email: string;
   taxId: string; // CPF (dígitos)
-  phone?: string | undefined; // dígitos; exigido pela PradaPay
 }
 
 export interface OrderProps {

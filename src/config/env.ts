@@ -21,7 +21,11 @@ const EnvSchema = z
 
     APP_BASE_URL: z.string().url().default('http://localhost:5173'),
     API_PUBLIC_URL: z.string().url().default('http://localhost:3333'),
-    CORS_ORIGIN: z.string().default('http://localhost:5173'),
+    CORS_ORIGIN: z
+      .string()
+      .default(
+        'http://localhost:5173,https://cultododesigner.com.br,https://www.cultododesigner.com.br',
+      ),
 
     PAYMENT_PROVIDER: z.enum(['mock', 'pradapay']).default('mock'),
 
@@ -31,15 +35,11 @@ const EnvSchema = z
 
     PRADAPAY_API_KEY: z.string().optional(),
     PRADAPAY_BASE_URL: z.string().url().default('https://api.pradapay.com'),
-    /**
-     * Cartão na PradaPay trafega PAN cru (sem tokenização). Mantenha DESLIGADO
-     * a menos que você assuma o escopo PCI-DSS. O fluxo recomendado é Pix.
-     */
-    PRADAPAY_ENABLE_CARD: booleanish.default(false),
+    PRADAPAY_WEBHOOK_SECRET: z.string().optional(),
 
     ENABLE_DEV_ROUTES: booleanish.default(true),
   })
-  // Se for usar PradaPay de verdade, exige a credencial da API.
+  // Se for usar PradaPay de verdade, exige as credenciais.
   .superRefine((env, ctx) => {
     if (env.PAYMENT_PROVIDER === 'pradapay') {
       if (!env.PRADAPAY_API_KEY) {
@@ -49,8 +49,13 @@ const EnvSchema = z
           message: 'Obrigatório quando PAYMENT_PROVIDER=pradapay.',
         });
       }
-      // Obs.: a PradaPay NÃO assina o webhook (não há segredo de webhook). A
-      // autenticidade do callback é garantida re-consultando o status na API.
+      if (!env.PRADAPAY_WEBHOOK_SECRET) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['PRADAPAY_WEBHOOK_SECRET'],
+          message: 'Obrigatório quando PAYMENT_PROVIDER=pradapay (validação do webhook).',
+        });
+      }
     }
   });
 
@@ -72,9 +77,9 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
   return cached;
 }
 
-/** Lista de origens do CORS já normalizada. */
+/** Lista de origens do CORS já normalizada (sem barra no fim, sem espaços). */
 export function corsOrigins(env: Env): string[] {
   return env.CORS_ORIGIN.split(',')
-    .map((s) => s.trim())
+    .map((s) => s.trim().replace(/\/+$/, ''))
     .filter(Boolean);
 }

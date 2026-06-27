@@ -27,7 +27,7 @@ src/
 │  ├─ coupons/    cupons + cálculo de desconto (PricingBreakdown)
 │  ├─ orders/     entidade Order + máquina de estados + repositório (porta)
 │  └─ payments/   payment-gateway.ts (PORTA) + gateways/ (ADAPTERS)
-│     └─ gateways/  mock-gateway.ts · pradapay-gateway.ts (integrado à API real)
+│     └─ gateways/  mock-gateway.ts (hoje) · pradapay-gateway.ts (stub)
 ├─ application/   orquestra o domínio (casos de uso)
 │  ├─ checkout/   CheckoutService (cria pedido + cobrança)
 │  └─ payments/   WebhookService + onOrderPaid (gancho de entitlement)
@@ -108,56 +108,37 @@ Cupons aceitos (iguais ao front): `CULTO10` (10%), `PRIMEIRA` (15%), `CRIADOR` (
 
 ---
 
-## Integrando a PradaPay
+## Integrando a PradaPay (quando chegar a hora)
 
-O adapter (`src/domain/payments/gateways/pradapay-gateway.ts`) já está escrito contra o **contrato real** da API (doc oficial em `web.pradapay.com/developers`). Para ligar:
+Toda a fiação já existe. O passo a passo:
 
-1. **No `.env`** (veja `.env.example`):
+1. **No `.env`:**
    ```env
    PAYMENT_PROVIDER=pradapay
    PRADAPAY_API_KEY=sua_chave
+   PRADAPAY_WEBHOOK_SECRET=seu_segredo
    PRADAPAY_BASE_URL=https://api.pradapay.com
-   PRADAPAY_ENABLE_CARD=false
-   # API_PUBLIC_URL precisa ser o domínio público desta API — é o que vira o postback.
-   API_PUBLIC_URL=https://api.seudominio.com.br
    ```
-   (Sem `PRADAPAY_API_KEY`, o boot falha de propósito.)
+   (Se faltar chave ou segredo, o boot falha de propósito.)
 
-2. **Cadastre o postback** na PradaPay como `https://SEU_DOMINIO/api/webhooks/pradapay`. O `API_PUBLIC_URL` é usado pra montar essa URL automaticamente na criação da cobrança.
+2. **Confira o adapter** `src/domain/payments/gateways/pradapay-gateway.ts`. Ele já está escrito no padrão de mercado (REST + webhook + API key, como Efí/Pagar.me/PixToPay), mas a doc oficial da PradaPay fica atrás de login — então os pontos onde os **nomes de campo** podem divergir estão marcados com `// ←★ AJUSTAR`. São basicamente:
+   - rota e corpo do `createCharge` (`/v1/transactions`, nomes `amount`/`payment_method`/`external_reference`/`postback_url`/`customer.document`);
+   - o header e o esquema da **assinatura do webhook** (`x-signature` + HMAC-SHA256 do corpo cru);
+   - o mapa de **status** do vocabulário da PradaPay pro nosso (`normalizeStatus`).
 
-3. Pronto. `CheckoutService`, `WebhookService`, rotas e front continuam idênticos.
+   Confirme cada um contra a doc real e ajuste. **Nada fora desse arquivo precisa mudar.**
 
-### Particularidades da PradaPay (já tratadas no adapter)
+3. **Cadastre a URL de webhook** na PradaPay como `https://SEU_DOMINIO/api/webhooks/pradapay` (o `API_PUBLIC_URL` do `.env` é usado pra montar isso automaticamente na criação da cobrança).
 
-A API dela foge de algumas convenções de mercado — o adapter absorve tudo isso, mas vale saber:
-
-- **`api-key` vai NO CORPO** (campo `"api-key"` do JSON), não em header `Authorization`.
-- **Endpoint único** `POST /v1/gateway/` pra todos os métodos. O método é escolhido pelo campo `forma_pagamento` (`cartao` / `boleto`); **Pix omite o campo** (é o default).
-- **`amount` em REAIS decimais** (ex.: `197.00`), não centavos. Internamente tudo é centavo inteiro; o adapter converte na borda (`centsToAmount`).
-- **`client.userPhone` é OBRIGATÓRIO** (além de `name`, `document`=CPF e `email`). Por isso o checkout agora coleta telefone — `customer.phone`. Se vier vazio, o adapter falha cedo com mensagem clara.
-- **Webhook sem assinatura.** A PradaPay não assina o postback. Confiar no corpo seria inseguro (qualquer um poderia forjar um "pago"). Então, ao receber o postback, o adapter **ignora o status do corpo e RE-CONSULTA** o status oficial em `POST /v1/webhook/ { idtransaction }` — essa resposta é a fonte da verdade. (É por isso que `parseWebhook` é assíncrono na porta.)
-- **Status:** `PAID_OUT`→`paid`, `WAITING_FOR_APPROVAL`→`pending`, `DECLINED`→`failed`; cartão usa `retorno_cartao` (`PAID`). Mapeado em `normalizeStatus`.
-- **Respostas:** Pix devolve `paymentCode` (copia-e-cola) + `paymentCodeBase64` (PNG do QR em base64, sem prefixo — o adapter transforma em `data:` URL) + `idTransaction`. Boleto devolve `barcode` + `pdf_url`. Cartão devolve `paymentUrl` (redirect) + `retorno_cartao`. Falha de negócio vem como `status:"error"` no corpo (às vezes com HTTP 200) — o adapter confere o campo, não só o código.
-
-Há um teste de contrato que roda **sem rede nem credenciais** (intercepta o `fetch` e devolve as respostas exatas da doc):
-
-```bash
-npm run smoke:pradapay
-```
-
-Ele valida o request montado (api-key no corpo, amount em reais, Pix sem `forma_pagamento`, telefone obrigatório), o mapeamento das respostas, e — o ponto sensível — que o webhook confirma por re-consulta e **ignora um corpo forjado**.
+4. Pronto. `CheckoutService`, `WebhookService`, rotas e front continuam idênticos.
 
 ### PCI-DSS (cartão)
 
-O fluxo recomendado é **Pix**. A PradaPay **não tem tokenização** de cartão: o PAN/CVV trafegam crus na requisição. Isso joga o servidor pra dentro do escopo PCI-DSS — então o cartão fica **desligado por padrão** e só liga com `PRADAPAY_ENABLE_CARD=true`, de forma consciente. Com o flag desligado, qualquer tentativa de cobrança no cartão é bloqueada no adapter.
-
-> A porta ainda expõe `cardToken` (para gateways que tokenizam, como o mock). A PradaPay usa o caminho `cardRaw` — só aceito sob o flag acima.
+Este backend **nunca** recebe número de cartão/CVV crus. Para cartão, o fluxo correto é o **cliente tokenizar** com o SDK do gateway e mandar só o `cardToken` — que é o que o `CreateChargeInput` espera. O mock aceita um token de mentira só pra demonstrar; com a PradaPay, use a tokenização dela. Assim o PAN nunca toca o seu servidor e o escopo de PCI fica mínimo.
 
 ---
 
 ## Próximos passos sugeridos (fora do escopo deste checkout)
-
-- **Split de pagamento:** a PradaPay suporta divisão por usuário (campo de split na cobrança). Não foi implementado — depende de cadastrar os IDs de recebedor na conta PradaPay; quando precisar, é um campo a mais no corpo do `createCharge`.
 
 - **Persistência real:** trocar `InMemoryOrderRepository` por Postgres/Prisma — é só um novo adapter da porta `OrderRepository`.
 - **Entitlement/biblioteca:** implementar o `onOrderPaid` (`src/application/payments/on-order-paid.ts`) pra liberar o pack do usuário e disparar e-mail/recibo quando o pedido vira `paid`. Hoje ele só loga.

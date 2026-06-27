@@ -32,9 +32,17 @@ export async function buildApp(env: Env): Promise<FastifyInstance> {
   // o webhook conseguir conferir a assinatura sobre os bytes originais.
   registerRawBody(app);
 
+  // CORS: libera só as origens configuradas em CORS_ORIGIN. A função aceita
+  // requisições sem Origin (curl, health check, postback do gateway) e ignora
+  // uma eventual barra no fim, evitando o mismatch clássico de origem.
+  const allowedOrigins = corsOrigins(env);
   await app.register(cors, {
-    origin: corsOrigins(env),
-    methods: ['GET', 'POST'],
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      const normalized = origin.replace(/\/+$/, '');
+      cb(null, allowedOrigins.includes(normalized));
+    },
+    methods: ['GET', 'POST', 'OPTIONS'],
   });
 
   registerErrorHandler(app);
